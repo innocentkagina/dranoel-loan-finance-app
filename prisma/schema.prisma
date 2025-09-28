@@ -1,0 +1,570 @@
+// Dranoel Financial Loan Management System
+// Prisma schema for comprehensive loan management
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  MEMBER
+  LOANS_OFFICER
+  TREASURER
+  ADMINISTRATOR
+}
+
+enum UserStatus {
+  PENDING     // Newly registered, waiting for admin approval
+  ACTIVE      // Active user with assigned role
+  INACTIVE    // Deactivated user
+  SUSPENDED   // Temporarily suspended
+}
+
+enum LoanType {
+  PERSONAL
+  MORTGAGE
+  AUTO
+  BUSINESS
+  STUDENT
+  PAYDAY
+}
+
+enum LoanStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  ACTIVE
+  PAID_OFF
+  DEFAULTED
+  CLOSED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  LATE
+  MISSED
+  PARTIAL
+}
+
+enum DocumentType {
+  IDENTITY_PROOF
+  INCOME_PROOF
+  BANK_STATEMENT
+  COLLATERAL_DOCUMENT
+  EMPLOYMENT_VERIFICATION
+  TAX_RETURN
+  CREDIT_REPORT
+  OTHER
+}
+
+enum NotificationType {
+  APPLICATION_SUBMITTED
+  APPLICATION_APPROVED
+  APPLICATION_REJECTED
+  PAYMENT_DUE
+  PAYMENT_RECEIVED
+  PAYMENT_OVERDUE
+  LOAN_DISBURSED
+  LOAN_COMPLETED
+  DOCUMENT_REQUIRED
+  SAVINGS_DEPOSIT
+  SAVINGS_WITHDRAWAL
+  BANK_ACCOUNT_APPROVED
+  BANK_ACCOUNT_REJECTED
+  GENERAL
+}
+
+enum SavingsAccountStatus {
+  ACTIVE
+  INACTIVE
+  FROZEN
+  CLOSED
+}
+
+enum BankAccountStatus {
+  PENDING      // Awaiting treasurer approval
+  APPROVED     // Verified and active
+  REJECTED     // Rejected by treasurer
+  INACTIVE     // Temporarily disabled
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  TRANSFER
+  INTEREST_CREDIT
+  FEE_DEBIT
+  BANK_SYNC    // Automatic sync from linked bank account
+}
+
+enum CollateralType {
+  REAL_ESTATE
+  VEHICLE
+  EQUIPMENT
+  SECURITIES
+  CASH_DEPOSIT
+  JEWELRY
+  OTHER
+}
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  password          String
+  firstName         String
+  lastName          String
+  phone             String?
+  address           String?
+  dateOfBirth       DateTime?
+  nationalId        String?   // National ID, SSN, or similar government ID
+  role              UserRole?  // Make role nullable until admin assigns it
+  status            UserStatus @default(PENDING)  // Track user workflow status
+  employmentStatus  String?
+  monthlyIncome     Float?
+  creditScore       Int?
+  isActive          Boolean   @default(true)
+  mustChangePassword Boolean  @default(true)  // Force password change on first login
+  passwordChangedAt DateTime?  // Track when password was last changed
+  approvedAt        DateTime?  // When admin approved the user
+  approvedBy        String?    // Admin who approved the user
+  lastLogin         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  loanApplications     LoanApplication[]
+  assignedApplications LoanApplication[] @relation("AssignedLoansOfficer")
+  payments             Payment[]
+  notifications        Notification[]
+  sentNotifications    Notification[] @relation("SentNotifications")
+  documents            Document[]
+  creditReports        CreditReport[]
+  savingsAccount       SavingsAccount?
+  bankAccounts         BankAccount[]
+  savingsTransactions  SavingsTransaction[]
+
+  @@map("users")
+}
+
+model LoanApplication {
+  id                  String     @id @default(cuid())
+  applicationNumber   String     @unique
+  borrowerId          String
+  borrower            User       @relation(fields: [borrowerId], references: [id])
+  assignedOfficerId   String?
+  assignedOfficer     User?      @relation("AssignedLoansOfficer", fields: [assignedOfficerId], references: [id])
+
+  loanType            LoanType
+  requestedAmount     Float
+  approvedAmount      Float?
+  interestRate        Float?
+  termMonths          Int
+  purpose             String
+
+  status              LoanStatus @default(DRAFT)
+
+  // Personal Information
+  employmentInfo      Json?      // Employment details
+  financialInfo       Json?      // Income, expenses, assets, liabilities
+  personalInfo        Json?      // Personal details beyond basic user info
+
+  // Loan specific details
+  collateralValue     Float?
+  downPayment         Float?
+  monthlyPayment      Float?
+
+  // Application tracking
+  submittedAt         DateTime?
+  reviewStartedAt     DateTime?
+  approvedAt          DateTime?
+  rejectedAt          DateTime?
+  disbursedAt         DateTime?
+
+  // Notes and comments
+  officerNotes        String?
+  rejectionReason     String?
+
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  // Relations
+  documents           Document[]
+  creditReports       CreditReport[]
+  loanAccount         LoanAccount?
+  collaterals         Collateral[]
+
+  @@map("loan_applications")
+}
+
+model LoanAccount {
+  id                  String     @id @default(cuid())
+  accountNumber       String     @unique
+  applicationId       String     @unique
+  application         LoanApplication @relation(fields: [applicationId], references: [id])
+
+  principalAmount     Float
+  currentBalance      Float
+  interestRate        Float
+  termMonths          Int
+  monthlyPayment      Float
+
+  startDate           DateTime
+  maturityDate        DateTime
+  nextPaymentDate     DateTime?
+
+  status              LoanStatus @default(ACTIVE)
+  isActive            Boolean    @default(true)
+
+  totalPaid           Float      @default(0)
+  totalInterestPaid   Float      @default(0)
+  principalPaid       Float      @default(0)
+
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  // Relations
+  payments            Payment[]
+  schedules           PaymentSchedule[]
+
+  @@map("loan_accounts")
+}
+
+model PaymentSchedule {
+  id                  String     @id @default(cuid())
+  loanAccountId       String
+  loanAccount         LoanAccount @relation(fields: [loanAccountId], references: [id])
+
+  installmentNumber   Int
+  dueDate             DateTime
+  principalAmount     Float
+  interestAmount      Float
+  totalAmount         Float
+
+  isPaid              Boolean    @default(false)
+  paidDate            DateTime?
+
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  @@map("payment_schedules")
+}
+
+model Payment {
+  id                  String        @id @default(cuid())
+  loanAccountId       String
+  loanAccount         LoanAccount   @relation(fields: [loanAccountId], references: [id])
+
+  userId              String
+  user                User          @relation(fields: [userId], references: [id])
+
+  amount              Float
+  principalAmount     Float
+  interestAmount      Float
+
+  paymentMethod       String        // BANK_TRANSFER, CREDIT_CARD, CASH, CHECK
+  transactionId       String?
+
+  status              PaymentStatus @default(PENDING)
+
+  scheduledDate       DateTime?
+  paidDate            DateTime?
+
+  notes               String?
+
+  // Receipt attachment
+  receiptFileName     String?
+  receiptFileUrl      String?
+  receiptFileSize     Int?
+  receiptMimeType     String?
+
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@map("payments")
+}
+
+model Document {
+  id                  String        @id @default(cuid())
+  userId              String
+  user                User          @relation(fields: [userId], references: [id])
+
+  applicationId       String?
+  application         LoanApplication? @relation(fields: [applicationId], references: [id])
+
+  type                DocumentType
+  fileName            String
+  fileUrl             String
+  fileSize            Int?
+  mimeType            String?
+
+  isVerified          Boolean       @default(false)
+  verifiedAt          DateTime?
+  verifiedBy          String?
+
+  description         String?
+
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@map("documents")
+}
+
+model CreditReport {
+  id                  String          @id @default(cuid())
+  userId              String
+  user                User            @relation(fields: [userId], references: [id])
+
+  applicationId       String?
+  application         LoanApplication? @relation(fields: [applicationId], references: [id])
+
+  creditScore         Int
+  reportDate          DateTime
+  reportProvider      String          // EXPERIAN, EQUIFAX, TRANSUNION
+
+  reportData          Json            // Full credit report data
+
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@map("credit_reports")
+}
+
+model Collateral {
+  id                  String          @id @default(cuid())
+  applicationId       String
+  application         LoanApplication @relation(fields: [applicationId], references: [id])
+
+  type                CollateralType
+  description         String
+  estimatedValue      Float
+  appraisedValue      Float?
+
+  details             Json?           // Specific details based on collateral type
+
+  isVerified          Boolean         @default(false)
+  verifiedAt          DateTime?
+
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@map("collaterals")
+}
+
+model InterestRate {
+  id                  String     @id @default(cuid())
+  loanType            LoanType
+  minCreditScore      Int
+  maxCreditScore      Int
+  rate                Float
+
+  isActive            Boolean    @default(true)
+  effectiveDate       DateTime
+  expiryDate          DateTime?
+
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  @@map("interest_rates")
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id])
+
+  senderId    String?
+  sender      User?            @relation("SentNotifications", fields: [senderId], references: [id])
+
+  type        NotificationType
+  title       String
+  message     String
+
+  isRead      Boolean          @default(false)
+  readAt      DateTime?
+
+  metadata    Json?            // Additional data like loan ID, payment ID, etc.
+
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@map("notifications")
+}
+
+model SystemSettings {
+  id                  String     @id @default(cuid())
+  key                 String     @unique
+  value               String
+  description         String?
+
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  @@map("system_settings")
+}
+
+model AuditLog {
+  id                  String     @id @default(cuid())
+  userId              String?
+  action              String
+  entityType          String     // USER, LOAN_APPLICATION, PAYMENT, etc.
+  entityId            String
+
+  oldValues           Json?
+  newValues           Json?
+
+  ipAddress           String?
+  userAgent           String?
+
+  createdAt           DateTime   @default(now())
+
+  @@map("audit_logs")
+}
+
+model SavingsAccount {
+  id                  String                @id @default(cuid())
+  accountNumber       String                @unique
+  userId              String                @unique
+  user                User                  @relation(fields: [userId], references: [id])
+
+  balance             Float                 @default(0)
+  interestRate        Float                 @default(0) // Annual interest rate
+  minimumBalance      Float                 @default(0)
+
+  status              SavingsAccountStatus  @default(ACTIVE)
+  isActive            Boolean               @default(true)
+
+  // Interest calculation
+  lastInterestDate    DateTime?
+  totalInterestEarned Float                 @default(0)
+
+  // Account limits and rules
+  dailyWithdrawLimit  Float?
+  monthlyWithdrawLimit Float?
+  maxBalance          Float?
+
+  openedAt            DateTime              @default(now())
+  closedAt            DateTime?
+
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  // Relations
+  transactions        SavingsTransaction[]
+  linkedBankAccounts  BankAccount[]
+
+  @@map("savings_accounts")
+}
+
+model BankAccount {
+  id                  String            @id @default(cuid())
+  userId              String
+  user                User              @relation(fields: [userId], references: [id])
+
+  savingsAccountId    String?
+  savingsAccount      SavingsAccount?   @relation(fields: [savingsAccountId], references: [id])
+
+  bankName            String
+  accountNumber       String
+  accountType         String            // CHECKING, SAVINGS, etc.
+  routingNumber       String?
+  swiftCode           String?
+
+  accountHolderName   String
+
+  // Verification details
+  status              BankAccountStatus @default(PENDING)
+  verificationDocument String?           // Document URL for verification
+
+  // Approval tracking
+  approvedAt          DateTime?
+  approvedBy          String?           // User ID of treasurer who approved
+  rejectedAt          DateTime?
+  rejectedBy          String?           // User ID of treasurer who rejected
+  rejectionReason     String?
+
+  // Auto-sync settings
+  isAutoSyncEnabled   Boolean           @default(false)
+  lastSyncAt          DateTime?
+  syncFrequency       String?           // DAILY, WEEKLY, MONTHLY
+
+  isActive            Boolean           @default(true)
+
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  // Relations
+  transactions        SavingsTransaction[]
+
+  @@map("bank_accounts")
+}
+
+model SavingsTransaction {
+  id                  String          @id @default(cuid())
+  savingsAccountId    String
+  savingsAccount      SavingsAccount  @relation(fields: [savingsAccountId], references: [id])
+
+  userId              String
+  user                User            @relation(fields: [userId], references: [id])
+
+  bankAccountId       String?
+  bankAccount         BankAccount?    @relation(fields: [bankAccountId], references: [id])
+
+  type                TransactionType
+  amount              Float
+  balanceAfter        Float           // Account balance after this transaction
+
+  description         String?
+  referenceNumber     String?         // Bank reference, check number, etc.
+
+  // For bank synced transactions
+  bankTransactionId   String?         // External bank transaction ID
+  bankTransactionDate DateTime?       // Date from bank record
+
+  // Approval for large transactions
+  requiresApproval    Boolean         @default(false)
+  approvedAt          DateTime?
+  approvedBy          String?         // User ID of approver
+
+  // Processing status
+  isProcessed         Boolean         @default(true)
+  processedAt         DateTime?
+  processingNotes     String?
+
+  // Receipt attachment
+  receiptFileName     String?
+  receiptFileUrl      String?
+  receiptFileSize     Int?
+  receiptMimeType     String?
+
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@map("savings_transactions")
+}
+
+model SavingsGoal {
+  id                  String     @id @default(cuid())
+  userId              String
+
+  goalName            String
+  targetAmount        Float
+  currentAmount       Float      @default(0)
+  targetDate          DateTime?
+
+  description         String?
+  isActive            Boolean    @default(true)
+  isAchieved          Boolean    @default(false)
+  achievedAt          DateTime?
+
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  @@map("savings_goals")
+}
