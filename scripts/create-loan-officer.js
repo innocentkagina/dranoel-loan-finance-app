@@ -44,10 +44,6 @@ async function createLoanOfficer() {
       }
     })
 
-    console.log('Loan officer created successfully!')
-    console.log('Email: loans@dranoel.com')
-    console.log('Password: loans123')
-    console.log('Role:', loanOfficer.role)
 
     return loanOfficer
 
